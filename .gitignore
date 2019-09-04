@@ -97,5 +97,3 @@ ENV/
 # mkdocs documentation
 /site
 
-# visited log
-*.txt
