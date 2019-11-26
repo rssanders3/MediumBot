@@ -2,32 +2,55 @@
 # -*- coding: utf-8 -*-
 # Author: Matt Flood
 
-import time
+import time, random
 from selenium import webdriver
 from bs4 import BeautifulSoup
+
+LOAD_TIME_SEC = 3
 
 # Configure constants here
 EMAIL = ''
 PASSWORD = ''
 LOGIN_SERVICE = 'Google'
 DRIVER = 'Firefox'
+GET_ARTICLES_FROM_MAIN_PAGE = True
+NUMBER_OF_MAIN_PAGE_PAGES = 4
 LIKE_POSTS = True
 NUM_LIKES_ON_POST = 20
 ARTICLE_BLACK_LIST = []
 FOLLOW_USERS = False
 UNFOLLOW_USERS = False
 VERBOSE = True
-SEARCH_TOPICS = []
+
+GET_ARTICLES_FROM_SEARCH_TOPICS = False
+SEARCH_TOPICS = ["fitness", "exercise", "health"]
+NUMBER_OF_TOPIC_PAGES = 2
+
+GET_ARTICLES_FROM_PUBLICATIONS = False
+PUBLICATION_URLS = ["https://towardsdatascience.com/"]
+NUMBER_OF_PUBLICATION_PAGES = 2
+
+NUMBER_OF_TIMES_TO_ITERATE = 1  # -1 = infinite
 
 
 users_followed_file = open("users_followed.txt", "r")
 USERS_ALREADY_FOLLOWED = users_followed_file.read().split("\n")
 print "USERS_ALREADY_FOLLOWED: " + str(USERS_ALREADY_FOLLOWED)
 
+
+LIKE_COUNT = 0
+SKIP_COUNT = 0
+FAILED_COUNT = 0
+
+
 def Launch():
     """
     Launch the Medium bot and ask the user what browser they want to use.
     """
+
+    LIKE_COUNT = 0
+    SKIP_COUNT = 0
+    FAILED_COUNT = 0
 
     if 'chrome' not in DRIVER.lower() and 'firefox' not in DRIVER.lower() and 'phantomjs' not in DRIVER.lower():
 
@@ -129,13 +152,13 @@ def SignInToGoogle(browser):
 
     try:
         browser.find_element_by_xpath('//span[contains(text(),"Sign up with Google")]').click()
-        time.sleep(3)
+        time.sleep(LOAD_TIME_SEC)
         browser.find_element_by_id('identifierId').send_keys(EMAIL)
         browser.find_element_by_id('identifierNext').click()
-        time.sleep(3)
+        time.sleep(LOAD_TIME_SEC)
         browser.find_element_by_name('password').send_keys(PASSWORD)
         browser.find_element_by_id('passwordNext').click()
-        time.sleep(2)
+        time.sleep(LOAD_TIME_SEC)
         signInCompleted = True
     except Exception, e:
         print "Exception while setting username and password: " + str(e)
@@ -149,34 +172,61 @@ def MediumBot(browser):
     browser: selenium browser used to interact with the page
     """
 
+    articleURLsQueued = []
     articleURLsVisited = []
 
+    iteration = 0
     # Infinite loop
     while True:
 
-        articleURLsQueued = ScrapeArticlesOffMainPage(browser)
-        for topic in SEARCH_TOPICS:
-            articleURLsQueued.extend(ScrapeUrlsOffSearchPage(browser, topic))
+        if GET_ARTICLES_FROM_MAIN_PAGE:
+            articleURLsQueued.extend(ScrapeArticlesOffMainPage(browser))
+        if GET_ARTICLES_FROM_SEARCH_TOPICS:
+            for topic in SEARCH_TOPICS:
+                articleURLsQueued.extend(ScrapeUrlsOffSearchPage(browser, topic))
+        if GET_ARTICLES_FROM_PUBLICATIONS:
+            for publication_url in PUBLICATION_URLS:
+                articleURLsQueued.extend(ScrapeUrlsOffPublicationPage(browser, publication_url))
 
-        print("articleURLsQueued: " + str(articleURLsQueued))
+        print("\n")
+        print("articleURLsQueued Length: " + str(len(articleURLsQueued)))
 
+        totalCount = len(articleURLsQueued)
+        currentPos = 0
         for articleURL in articleURLsQueued:
             if articleURL not in articleURLsVisited:
                 LikeAndFollowOnPost(browser, articleURL)
+                articleURLsVisited.append(articleURLsQueued)
             else:
                 print "Already Visited this URL"
+            currentPos += 1
+            if (currentPos % 10) == 0 or currentPos == totalCount:
+                print "Completed " + str(currentPos) + " of " + str(totalCount)
+
+        iteration += 1
+        print "iteration: " + str(iteration) + ", NUMBER_OF_TIMES_TO_ITERATE: " + str(NUMBER_OF_TIMES_TO_ITERATE)
+        if NUMBER_OF_TIMES_TO_ITERATE != -1:
+            if iteration == NUMBER_OF_TIMES_TO_ITERATE:
+                print "\nBreaking loop and finishing..."
+                break
 
         print '\nPause for 1 hour to wait for new articles to be posted\n'
         time.sleep(3600+(random.randrange(0, 10))*60)
 
+    print "\nSummary:"
+    print "Number of Posts Liked: " + str(LIKE_COUNT)
+    print "Number of Posts Skipped: " + str(SKIP_COUNT)
+    print "Number of Posts Failed to Like: " + str(FAILED_COUNT)
+
 
 def ScrapeArticlesOffMainPage(browser):
     browser.get("https://medium.com/")
-    time.sleep(5)
+    time.sleep(LOAD_TIME_SEC)
+    for i in range(0, NUMBER_OF_MAIN_PAGE_PAGES):
+        ScrollToBottomAndWaitForLoad(browser)
     soup = BeautifulSoup(browser.page_source, "lxml")
     urls = []
     print 'Gathering urls'
-
     try:
         for a in soup.find_all('a', class_='ds-link ds-link--stylePointer u-overflowHidden u-flex0 u-width100pct'):
             if a["href"] not in urls:
@@ -192,7 +242,9 @@ def ScrapeArticlesOffMainPage(browser):
 def ScrapeUrlsOffSearchPage(browser, topic):
     print "topic: " + str(topic)
     browser.get("https://medium.com/search?q=" + str(topic))
-    time.sleep(5)
+    time.sleep(LOAD_TIME_SEC)
+    for i in range(0, NUMBER_OF_TOPIC_PAGES):
+        ScrollToBottomAndWaitForLoad(browser)
     soup = BeautifulSoup(browser.page_source, "lxml")
     urls = []
     print 'Gathering urls'
@@ -209,6 +261,29 @@ def ScrapeUrlsOffSearchPage(browser, topic):
     return urls
 
 
+def ScrapeUrlsOffPublicationPage(browser, publication_url):
+    print "publication_url: " + str(publication_url)
+    browser.get(publication_url)
+    time.sleep(LOAD_TIME_SEC)
+    for i in range(0, NUMBER_OF_PUBLICATION_PAGES):
+        ScrollToBottomAndWaitForLoad(browser)
+    soup = BeautifulSoup(browser.page_source, "lxml")
+    urls = []
+    print 'Gathering urls'
+
+    try:
+        for a in soup.find_all('a', {"data-action": "open-post"}):
+        # for a in soup.find_all('a', {"class": "u-block.*"}):
+            if a["href"] not in urls:
+                urls.append(a["href"])
+                if VERBOSE:
+                    print a["href"]
+    except Exception, e:
+        print 'Exception thrown in ScrapeUrlsOffPublicationPage()' + str(e)
+
+    return urls
+
+
 def LikeAndFollowOnPost(browser, articleURL):
     """
     Like, comment, and/or follow the author of the post that has been navigated to.
@@ -216,17 +291,23 @@ def LikeAndFollowOnPost(browser, articleURL):
     articleURL: the url of the article to navigate to and like and/or comment
     """
 
-    browser.get(articleURL)
+    try:
+        print "Navigating to: " + str(articleURL)
+        browser.get(articleURL)
 
-    if browser.title not in ARTICLE_BLACK_LIST:
-        if FOLLOW_USERS:
-            FollowUser(browser)
-        if UNFOLLOW_USERS:
-            UnFollowUser(browser)
-        ScrollToBottomAndWaitForLoad(browser)
-        ScrollHalfWayAndWaitForLoad(browser)
-        if LIKE_POSTS:
-            LikeArticle(browser)
+        if browser.title not in ARTICLE_BLACK_LIST:
+            if FOLLOW_USERS:
+                FollowUser(browser)
+            if UNFOLLOW_USERS:
+                UnFollowUser(browser)
+            # ScrollToBottomAndWaitForLoad(browser)
+            ScrollHalfWayAndWaitForLoad(browser)
+            if LIKE_POSTS:
+                LikeArticle(browser)
+    except Exception, e:
+        print 'Exception thrown in LikeAndFollowOnPost(): ' + str(e)
+        browser.quit()
+        exit(1)
 
 
 def LikeArticle(browser):
@@ -234,20 +315,35 @@ def LikeArticle(browser):
     Like the article that has already been navigated to.
     browser: selenium driver used to interact with the page.
     """
+
+    # XQuery In Java Script for Testing:
+    #   document.querySelector('/html/body/div/div');
+    #   document.evaluate('/html/body//h2', document.body, null, XPathResult.ANY_TYPE, null).iterateNext()
+    global LIKE_COUNT
+    global SKIP_COUNT
+    global FAILED_COUNT
+
     alreadyLikedButton = None
     try:
         alreadyLikedButton = browser.find_element_by_xpath('//button[contains(@class, "multi-vote-undo-revealed")]')
     except Exception, e:
         pass
 
+    # document.evaluate('/html/body/div/div/div[5]/div/div[1]/div/div[4]/div[1]/div[1]/div/div/button', document.body, null, XPathResult.ANY_TYPE, null).iterateNext()
+
     try:
         if not alreadyLikedButton:
-            likeButton = browser.find_element_by_xpath('//div[@data-test-id="post-sidebar"]/div/div/div/div/div/button')
+            # likeButton = browser.find_element_by_xpath('//div[@data-test-id="post-sidebar"]/div/div/div/div/div/button')
+            likeButton = browser.find_element_by_xpath('/html/body/div/div/div[5]/div/div[1]/div/div[4]/div[1]/div[1]/div/div/button')
             for i in range(0, NUM_LIKES_ON_POST):
                 likeButton.click()
+            print "Successfully Liked the Article"
+            LIKE_COUNT += 1
         else:
             print "Article was already liked"
+            SKIP_COUNT += 1
     except Exception, e:
+        FAILED_COUNT += 1
         print 'Exception thrown in LikeArticle(): ' + str(e)
 
 
