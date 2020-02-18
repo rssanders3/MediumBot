@@ -151,7 +151,7 @@ def SignInToGoogle(browser):
     signInCompleted = False
 
     try:
-        browser.find_element_by_xpath('//span[contains(text(),"Sign up with Google")]').click()
+        browser.find_element_by_xpath('//span[contains(text(),"Sign in with Google")]').click()
         time.sleep(LOAD_TIME_SEC)
         browser.find_element_by_id('identifierId').send_keys(EMAIL)
         browser.find_element_by_id('identifierNext').click()
@@ -273,7 +273,7 @@ def ScrapeUrlsOffPublicationPage(browser, publication_url):
 
     try:
         for a in soup.find_all('a', {"data-action": "open-post"}):
-        # for a in soup.find_all('a', {"class": "u-block.*"}):
+            # for a in soup.find_all('a', {"class": "u-block.*"}):
             if a["href"] not in urls:
                 urls.append(a["href"])
                 if VERBOSE:
